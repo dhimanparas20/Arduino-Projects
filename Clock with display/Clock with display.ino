@@ -63,16 +63,17 @@ void loop()
   if (M ==13) M=1;
   if(i>8)i = 0;
   s = s+1; 
-  delay(1000);
-  lcd.clear();
+
   lcd.setCursor(0, 1);       
   lcd.print("Date");
   lcd.setCursor(5, 1);      
   lcd.print(dt);
-  lcd.print("/");
+  lcd.print(":");
   lcd.print(M);
-  lcd.print("/22 "); 
+  lcd.print(":22 "); 
   lcd.print(day[i]); 
+  delay(1000);
+  lcd.clear();
        
   if (s == 60){
     s = 0;
@@ -86,15 +87,24 @@ void loop()
   if (h==13){
     h = 1;
   }
+
+  //Reading Button Values 
+  bm = digitalRead(D6);  // Button to change Minutes
+  bh = digitalRead(D7);  // Button to change Hours
+  bdt = digitalRead(D8); // Button to change Date
+  bM = analogRead(A0);   // Button to change Month
+
+  if (bm == 1 & bh == 1) {  // When both buttons pressed together the day changes.
+    i += 1;
+    if(i>8)i = 0;
+  } 
   
-  bm = digitalRead(D6);
-  if (bm == 1) {
+  else if (bm == 1) {         // Minute Chnage 
     s=0;
     m=m+1;
   }
- 
-  bh = digitalRead(D7);
-  if (bh == 1) {
+  
+  else if (bh == 1) {        //Hour Change
     h += 1;
     flag+=1;
     if(flag<12)  lcd.print(" AM");
@@ -106,9 +116,8 @@ void loop()
     if(i>8)i = 0;
     if(h==13) h=1;    
   }
-
-  bdt = digitalRead(D8);
-  if (bdt == 1) {
+  
+  else if (bdt == 1) {    // Date change
     dt=dt+1;
     i += 1;
     if(i>6)i = 0;
@@ -116,16 +125,11 @@ void loop()
     if (M ==13) M=1;
   } 
    
-  bM = analogRead(A0);
-  if (bM == 1024) {
+  else if (bM == 1024) {  //Month Change
     M=M+1;
     if (M ==13) M=1;
   } 
 
-  if (bm == 1 & bm == 1) {
-    i += 1;
-    if(i>8)i = 0;
-  } 
-
 }
+
 
