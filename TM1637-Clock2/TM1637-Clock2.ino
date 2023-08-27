@@ -12,7 +12,7 @@ int colonHide = 0b00000000;
 int colonStat,i=0;
 bool colonVisible = true;
 const char* ntpServer = "pool.ntp.org";
-const long  gmtOffset_sec = 19800;   //Replace with your GMT offset (seconds)
+const long  gmtOffset_sec = 19800;   //Replace with your GMT offset (seconds) 19800
 const int   daylightOffset_sec = 0;  //Replace with your daylight offset (seconds)
 String ab="";
 TM1637Display display(CLK_PIN, DIO_PIN);
@@ -65,6 +65,8 @@ void printLocalTime()
   if (hours == 0) {
     hours = 12;
   }
+
+  // Make the colon Blink 
   colonVisible = !colonVisible;
   if (colonVisible == true){
     colonStat= colonShow;
@@ -72,12 +74,24 @@ void printLocalTime()
   else if (colonVisible == false){
     colonStat= colonHide;
   }
-  ab = (hours);
-  ab +=  (minutes);
-  int num = ab.toInt();
-  display.showNumberDecEx(num,colonStat,true,4,0);   //true to show preceeding 0's,4 for no of digits, 0 for starting index
 
-  //Serial.printf("Current time: %02d:%02d\n", hours, minutes);
+  // Add 0 to minutes if minutes <10
+  char myNumberStr[2];
+  itoa(minutes, myNumberStr, 10);
+  int length = strlen(myNumberStr);
+  Serial.println(length);
+  if (length == 1){
+    ab = hours;
+    ab += "0";
+    ab += minutes;
+  }
+  else{
+   ab = hours;
+   ab += minutes;
+  }
+  int num = ab.toInt();
+  //Serial.println(num);
+  display.showNumberDecEx(num,colonStat,true,4,0);   //true to show preceeding 0's,4 for no of digits, 0 for starting index
   //Serial.println(asctime(timeinfo));
   delay(1000);
 }
