@@ -79,7 +79,6 @@ void printLocalTime()
   char myNumberStr[2];
   itoa(minutes, myNumberStr, 10);
   int length = strlen(myNumberStr);
-  Serial.println(length);
   if (length == 1){
     ab = hours;
     ab += "0";
