@@ -1,13 +1,17 @@
 #include <TM1637Display.h>
 #include <ESP8266WiFi.h>
+#include "DHT.h"
 #include "time.h"
 
 #define ssid "Kens Device"
 #define password "asdfghjkl"
 #define BRIGHTNESS  2   //0-7
 #define SHOW_DATE true
+#define SHOW_TEMP true
 #define CLK_PIN D0
 #define DIO_PIN D1
+#define DHTPIN D2    // Digital pin connected to the DHT sensor
+#define DHTTYPE DHT11   // DHT 22  (AM2302), AM2321
 
 String ab="";
 int colonShow = 0b01000000;
@@ -18,6 +22,7 @@ const char* ntpServer = "pool.ntp.org";
 const long  gmtOffset_sec = 19800;   //Replace with your GMT offset (seconds) 19800
 const int   daylightOffset_sec = 0;  //Replace with your daylight offset (seconds)
 TM1637Display display(CLK_PIN, DIO_PIN);
+DHT dht(DHTPIN, DHTTYPE);
 
 
 void setup()
@@ -42,11 +47,13 @@ void setup()
   //disconnect WiFi as it's no longer needed
   WiFi.disconnect(true);
   WiFi.mode(WIFI_OFF);
+  dht.begin();
 }
 
 void loop()
 {
   printLocalTime();
+  //Serial.printf("Himidy: %.2f \nTemperature: %.2f °C  \nHeat Index: %.2f  \n\n",h,t,hic);
 }
 void printLocalTime()
 {
@@ -54,6 +61,12 @@ void printLocalTime()
   struct tm * timeinfo;
   time (&rawtime);
   timeinfo = localtime (&rawtime);
+  
+  // Extract Room Temp, Himidty
+  float h = dht.readHumidity();
+  float t = dht.readTemperature();
+  int hic = dht.computeHeatIndex(t, h, false);
+  int humidity =  h;   // convert humidity to integer due to small display
 
   // Extract hour and minutes and date and month
   int hours = timeinfo->tm_hour;
@@ -69,20 +82,36 @@ void printLocalTime()
   if (hours == 0) {
     hours = 12;
   }
-  #if SHOW_DATE == true
-    if (j==14){
+  
+  #if SHOW_TEMP == true    // Shows Temprature
+    if (j==10){
+        display.clear();
+        hours = hic;
+        minutes = humidity;
+      }
+
+    else if (j==11){
+      display.clear();
+      hours = hic;
+        minutes = humidity;
+    }
+  #endif  
+
+  #if SHOW_DATE == true  // Shows Date
+    if (j==12){
       display.clear();
       hours = date;
       minutes = month;
     }
 
-    else if (j==15){
+    else if (j==13){
       display.clear();
       hours = date;
       minutes = month;
       j=0;
     }
-  #endif  
+  #endif
+
 
   // Make the colon Blink 
   colonVisible = !colonVisible;
