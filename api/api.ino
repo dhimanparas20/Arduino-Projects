@@ -4,11 +4,11 @@
 #include <ESP8266WiFi.h>
 
 
-#define BLYNK_AUTH_TOKEN "I1mwrVRgLtqBQ8b5m3GZ9quXlh4J-B0b"
+#define BLYNK_AUTH_TOKEN ""
 #define USE_SERIAL Serial
 
-const char* ssid = "Kens Device";
-const char* pass = "asdfghjkl";
+const char* ssid = "";
+const char* pass = "";
 
 void setup() {
   USE_SERIAL.begin(9600);
