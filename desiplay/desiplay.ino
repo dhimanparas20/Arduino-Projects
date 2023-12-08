@@ -13,33 +13,32 @@
 
 String h = "Hello Abhishek";
 int len = h.length();
-int i;
+int i=0;
 
 #include <LiquidCrystal.h>
-const int rs = 7, en = 6, d4 = 5, d5 = 4, d6 = 3, d7 = 2;
+const int rs = D0, en = D1, d4 = D2, d5 = D3, d6 = D4, d7 = D5;  // PiN's for LCD Display
 LiquidCrystal lcd(rs, en, d4, d5, d6, d7);
 
 void setup() {
   lcd.begin(16, 2);
 }
 void loop() {
-  lcd.setCursor(1, 0);
-  for (i=0;i<=len-1;i++){
-    lcd.print(h[i]);
-    delay(100);
-  }
-  lcd.setCursor(0, 1);
+  lcd.setCursor(0, 0);
   lcd.print("Have a great Day");
-  delay(3000);
+  lcd.setCursor(0, 1);
+  lcd.print(i);
+  delay(500);
+  i += 1;
   lcd.clear();
-  delay(400);
   //lcd.print(millis() / 1000); 
 
+/*
   // Turn off the display:
   lcd.noDisplay();
   delay(500);
   // Turn on the display:
   lcd.display();
   delay(500);
+*/  
 }
 
