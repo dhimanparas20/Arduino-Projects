@@ -130,14 +130,14 @@ const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 const int ledPin = LED_BUILTIN; // Built-in NodeMCU LED pin (usually GPIO2 or GPIO0)
 
 // Variable to track the delay duration
-int currentDelay = 2000; // Start with 2000 ms delay
+int currentDelay = 1500; // Start with 2000 ms delay
 
 // Wi-Fi credentials
 const char* ssid = "";
 const char* password = "";
 
 // MQTT server configuration
-#define MQTT_SERVER ""
+#define MQTT_SERVER "mqtt.mstservices.tech"
 #define MQTT_USER ""
 #define MQTT_PASSWORD ""
 #define MQTT_PORT 1883
@@ -257,12 +257,12 @@ void loop() {
       delay(150);                   // Buzzer off for 150ms
     }
     // Reduce the delay to 500 ms while the buzzer is active
-    currentDelay = 50;
+    currentDelay = 250;
   } else {
     // Ensure the buzzer is off
     digitalWrite(buzzerPin, HIGH);
     // Restore the delay to 2000 ms when the distance is above the threshold
-    currentDelay = 2000;
+    currentDelay = 1500;
   }
 
   // Wait for the current delay duration before the next measurement
@@ -352,13 +352,26 @@ void showConnectingPattern() {
 }
 
 // Callback function to handle incoming MQTT messages
+// Callback function to handle incoming MQTT messages
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message received on topic: ");
   Serial.println(topic);
 
+  // Convert the payload to a null-terminated string
   char message[length + 1];
   memcpy(message, payload, length);
   message[length] = '\0'; // Null-terminate the string
+
+  // Display the received message temporarily on the TM1637 display
+  int displayValue = atoi(message); // Convert the message to an integer
+  if (displayValue >= 0 && displayValue <= 9999) {
+    display.showNumberDec(displayValue, false); // Show the value on the display
+    delay(1000); // Keep the value displayed for 2 seconds
+  } else {
+    // If the value is invalid, show "----" temporarily
+    display.showNumberDecEx(0, 0b01000000, false); // Show "----"
+    delay(1000);
+  }
 
   // Handle threshold updates
   if (String(topic) == subscribeTopicThreshold) {
