@@ -130,14 +130,14 @@ const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 const int ledPin = LED_BUILTIN; // Built-in NodeMCU LED pin (usually GPIO2 or GPIO0)
 
 // Variable to track the delay duration
-int currentDelay = 1500; // Start with 2000 ms delay
+int currentDelay = 2000; // Start with 2000 ms delay
 
 // Wi-Fi credentials
 const char* ssid = "";
 const char* password = "";
 
 // MQTT server configuration
-#define MQTT_SERVER "mqtt.mstservices.tech"
+#define MQTT_SERVER ""
 #define MQTT_USER ""
 #define MQTT_PASSWORD ""
 #define MQTT_PORT 1883
@@ -168,6 +168,8 @@ long measureDistance();
 void blinkLED(int frequency);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void showConnectingPattern();
+// Declare the static variable globally so it persists across loop iterations
+static unsigned long lastActivityTime = 0;
 
 void setup() {
   // Initialize serial communication
@@ -203,6 +205,12 @@ void setup() {
 }
 
 void loop() {
+  // Check if 10 seconds have passed since the last activity
+  if (millis() - lastActivityTime > 10000) { // 10 seconds interval
+    keepPowerBankActive(); // Call the function to keep the power bank active
+    lastActivityTime = millis(); // Update the last activity time
+  }
+
   // If not in offline mode, ensure the MQTT client stays connected
   if (!offlineMode && !client.connected()) {
     connectToMQTT();
@@ -287,6 +295,7 @@ void connectToWiFi() {
   Serial.print("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
   WiFi.setSleepMode(WIFI_LIGHT_SLEEP);
+  // WiFi.setSleepMode(WIFI_NONE_SLEEP);
 
   unsigned long startTime = millis(); // Record the start time
   while (WiFi.status() != WL_CONNECTED) {
@@ -399,4 +408,12 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println("Invalid display state received.");
     }
   }
+}
+
+void keepPowerBankActive() {
+  // Toggle a GPIO pin to simulate activity
+  digitalWrite(ledPin, LOW); // Turn on the built-in LED
+  delay(100);  
+  // Serial.println("Trigger led");
+  digitalWrite(ledPin, HIGH); // Turn off the LED
 }
