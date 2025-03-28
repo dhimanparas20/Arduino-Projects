@@ -1,10 +1,11 @@
 /*
-README: Water Tank Monitoring System with Wi-Fi and MQTT Integration
+README: Water Tank Monitoring System with Modular Configuration
 
 This code is designed for a water tank monitoring system using an ultrasonic sensor, 
 a TM1637 4-segment display, a buzzer, and an ESP8266 NodeMCU. The system measures 
 the water level in a tank and provides alerts when the level is below a threshold. 
-It also integrates with MQTT for remote monitoring and control.
+It also integrates with MQTT for remote monitoring and control. Additionally, the 
+code has been modularized to store configuration settings in a separate file (`config.h`).
 
 ---
 
@@ -17,6 +18,7 @@ It also integrates with MQTT for remote monitoring and control.
 6. The display can be toggled on/off via another MQTT topic (`watertank/display`).
 7. If Wi-Fi is not available within 60 seconds of booting, the system enters offline mode 
    and continues to function locally without MQTT.
+8. Configuration settings (Wi-Fi, MQTT, default values) are stored in a separate file (`config.h`).
 
 ---
 
@@ -43,50 +45,61 @@ It also integrates with MQTT for remote monitoring and control.
 ---
 
 **Wi-Fi and MQTT Configuration:**
-- Update the following variables with your Wi-Fi and MQTT credentials:
+- Configuration settings are stored in the `config.h` file:
   - `ssid`: Your Wi-Fi SSID
   - `password`: Your Wi-Fi password
   - `MQTT_SERVER`: Your MQTT broker address
   - `MQTT_USER`: Your MQTT username (leave empty if not required)
   - `MQTT_PASSWORD`: Your MQTT password (leave empty if not required)
   - `MQTT_PORT`: Your MQTT broker port (default is 1883)
+  - `WS_DEVICE_CLIENTID`: MQTT client ID for the device
+  - `publishTopic`: MQTT topic to publish water level (`watertank`)
+  - `subscribeTopicThreshold`: MQTT topic to subscribe for threshold updates (`watertank/val`)
+  - `subscribeTopicDisplay`: MQTT topic to subscribe for display control (`watertank/display`)
+  - `defaultThresholdDistance`: Default threshold distance (in cm)
+  - `defaultDisplayEnabled`: Default state of the TM1637 display (enabled/disabled)
 
 ---
 
 **Variables:**
-- `thresholdDistance`: Default threshold distance (in cm). Can be updated via MQTT.
-- `publishTopic`: MQTT topic to publish water level (`watertank`).
-- `subscribeTopicThreshold`: MQTT topic to subscribe for threshold updates (`watertank/val`).
-- `subscribeTopicDisplay`: MQTT topic to subscribe for display control (`watertank/display`).
+- `thresholdDistance`: Current threshold distance (in cm). Initialized from `config.h` and can be updated via MQTT.
+- `displayEnabled`: Current state of the TM1637 display. Initialized from `config.h` and can be updated via MQTT.
 - `offlineMode`: Flag to indicate if the system is running in offline mode.
-- `displayEnabled`: Flag to control whether the TM1637 display shows values (default is `1`).
+- `previousDistance`: Stores the last measured distance to avoid redundant updates.
+- `currentDelay`: Delay duration between measurements, adjusted dynamically based on water level.
 
 ---
 
 **Features:**
-1. **Wi-Fi Connection:**
+1. **Modular Configuration:**
+   - All configuration settings are stored in `config.h` for better code organization.
+
+2. **Wi-Fi Connection:**
    - Attempts to connect to Wi-Fi for 60 seconds. If unsuccessful, enters offline mode.
 
-2. **MQTT Integration:**
+3. **MQTT Integration:**
    - Publishes water level to `watertank`.
    - Subscribes to `watertank/val` to dynamically update the threshold distance.
    - Subscribes to `watertank/display` to toggle the TM1637 display on/off.
 
-3. **Offline Mode:**
+4. **Offline Mode:**
    - If Wi-Fi is unavailable, the system continues to function locally.
 
-4. **Buzzer Alert:**
+5. **Buzzer Alert:**
    - Beeps when the water level is below the threshold.
 
-5. **TM1637 Display:**
+6. **TM1637 Display:**
    - Displays the measured distance in cm (if enabled via MQTT).
    - Shows patterns during Wi-Fi and MQTT connection attempts.
+
+7. **Power Bank Activity:**
+   - Toggles the built-in LED periodically to keep the power bank active.
 
 ---
 
 **Usage:**
 1. Connect the hardware as described above.
-2. Update the Wi-Fi and MQTT credentials in the code.
+2. Update the Wi-Fi and MQTT credentials in the `config.h` file.
 3. Upload the code to the ESP8266 NodeMCU using the Arduino IDE.
 4. Monitor the Serial Monitor for debug messages.
 5. Use an MQTT client to publish a new threshold value to `watertank/val` or toggle the display via `watertank/display`.
@@ -105,9 +118,11 @@ It also integrates with MQTT for remote monitoring and control.
 - Date: 22/03/2025
 */
 
+
 #include <TM1637Display.h> // Include the TM1637 library
 #include <ESP8266WiFi.h>   // Include the ESP8266 Wi-Fi library
 #include <PubSubClient.h>  // Include the PubSubClient library for MQTT
+#include "config.h"        // Include the configuration file
 
 // Define pins for the ultrasonic sensor
 const int trigPin = D1;  // Trig pin of ultrasonic sensor (GPIO5)
@@ -117,12 +132,6 @@ const int echoPin = D2;  // Echo pin of ultrasonic sensor (GPIO4)
 const int CLK = D5;      // Clock pin of TM1637 (GPIO14)
 const int DIO = D6;      // Data pin of TM1637 (GPIO12)
 
-// Define the default threshold distance (in cm)
-int thresholdDistance = 10; // Default value, can be updated via MQTT
-
-// Create an instance of the TM1637Display class
-TM1637Display display(CLK, DIO);
-
 // Define the buzzer pin
 const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 
@@ -130,27 +139,10 @@ const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 const int ledPin = LED_BUILTIN; // Built-in NodeMCU LED pin (usually GPIO2 or GPIO0)
 
 // Variable to track the delay duration
-int currentDelay = 2000; // Start with 2000 ms delay
+int currentDelay = 1500; // Start with 2000 ms delay
 
-// Wi-Fi credentials
-const char* ssid = "";
-const char* password = "";
-
-// MQTT server configuration
-#define MQTT_SERVER ""
-#define MQTT_USER ""
-#define MQTT_PASSWORD ""
-#define MQTT_PORT 1883
-#define WS_DEVICE_CLIENTID "/nodemcuwatertank"
-
-// MQTT topics
-const char* publishTopic = "watertank";
-const char* subscribeTopicThreshold = "watertank/val";
-const char* subscribeTopicDisplay = "watertank/display";
-
-// Create Wi-Fi and MQTT clients
-WiFiClient espClient;
-PubSubClient client(espClient);
+// Create an instance of the TM1637Display class
+TM1637Display display(CLK, DIO);
 
 // Variable to store the previous distance value
 int previousDistance = -1; // Initialize with an invalid value
@@ -159,7 +151,14 @@ int previousDistance = -1; // Initialize with an invalid value
 bool offlineMode = false; // Start in online mode by default
 
 // Display control flag
-bool displayEnabled = true; // Default to showing values on the display
+bool displayEnabled = defaultDisplayEnabled; // Use default value from config.h
+
+// Threshold distance
+int thresholdDistance = defaultThresholdDistance; // Use default value from config.h
+
+// Create Wi-Fi and MQTT clients
+WiFiClient espClient;
+PubSubClient client(espClient);
 
 // Function prototypes
 void connectToWiFi();
@@ -168,6 +167,8 @@ long measureDistance();
 void blinkLED(int frequency);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void showConnectingPattern();
+void keepPowerBankActive();
+
 // Declare the static variable globally so it persists across loop iterations
 static unsigned long lastActivityTime = 0;
 
@@ -189,7 +190,7 @@ void setup() {
 
   // Initialize the TM1637 display
   display.setBrightness(1); // Set brightness (0-7, 7 is max)
-  displayEnabled = true;    // Default to showing values on the display
+  displayEnabled = defaultDisplayEnabled; // Use default value from config.h
 
   // Attempt to connect to Wi-Fi
   connectToWiFi();
@@ -206,10 +207,10 @@ void setup() {
 
 void loop() {
   // Check if 10 seconds have passed since the last activity
-  if (millis() - lastActivityTime > 10000) { // 10 seconds interval
-    keepPowerBankActive(); // Call the function to keep the power bank active
-    lastActivityTime = millis(); // Update the last activity time
-  }
+  // if (millis() - lastActivityTime > 10000) { // 10 seconds interval
+  //   keepPowerBankActive(); // Call the function to keep the power bank active
+  //   lastActivityTime = millis(); // Update the last activity time
+  // }
 
   // If not in offline mode, ensure the MQTT client stays connected
   if (!offlineMode && !client.connected()) {
@@ -360,7 +361,6 @@ void showConnectingPattern() {
   patternIndex = (patternIndex + 1) % 4; // Cycle through patterns
 }
 
-// Callback function to handle incoming MQTT messages
 // Callback function to handle incoming MQTT messages
 void mqttCallback(char* topic, byte* payload, unsigned int length) {
   Serial.print("Message received on topic: ");
