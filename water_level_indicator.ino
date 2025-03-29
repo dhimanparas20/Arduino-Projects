@@ -1,124 +1,3 @@
-/*
-README: Water Tank Monitoring System with Modular Configuration
-
-This code is designed for a water tank monitoring system using an ultrasonic sensor, 
-a TM1637 4-segment display, a buzzer, and an ESP8266 NodeMCU. The system measures 
-the water level in a tank and provides alerts when the level is below a threshold. 
-It also integrates with MQTT for remote monitoring and control. Additionally, the 
-code has been modularized to store configuration settings in a separate file (`config.h`).
-
----
-
-**How the Code Works:**
-1. The ultrasonic sensor measures the distance to the water surface.
-2. The distance is displayed on a TM1637 4-segment display (if enabled via MQTT).
-3. If the distance is below a threshold, the buzzer beeps to alert the user.
-4. The system connects to Wi-Fi and publishes the water level to an MQTT topic.
-5. The threshold distance can be updated dynamically via an MQTT topic (`watertank/val`).
-6. The display can be toggled on/off via another MQTT topic (`watertank/display`).
-7. If Wi-Fi is not available within 60 seconds of booting, the system enters offline mode 
-   and continues to function locally without MQTT.
-8. Configuration settings (Wi-Fi, MQTT, default values) are stored in a separate file (`config.h`).
-
----
-
-**Hardware Connections:**
-1. **Ultrasonic Sensor (HC-SR04):**
-   - Trig Pin: Connect to D1 (GPIO5)
-   - Echo Pin: Connect to D2 (GPIO4)
-   - VCC: Connect to 5V
-   - GND: Connect to GND
-
-2. **TM1637 4-Segment Display:**
-   - CLK Pin: Connect to D5 (GPIO14)
-   - DIO Pin: Connect to D6 (GPIO12)
-   - VCC: Connect to 3.3V
-   - GND: Connect to GND
-
-3. **Buzzer:**
-   - Positive Pin: Connect to D3 (GPIO0)
-   - Negative Pin: Connect to GND
-
-4. **Built-in LED:**
-   - Used for status indication (Wi-Fi and MQTT connection).
-
----
-
-**Wi-Fi and MQTT Configuration:**
-- Configuration settings are stored in the `config.h` file:
-  - `ssid`: Your Wi-Fi SSID
-  - `password`: Your Wi-Fi password
-  - `MQTT_SERVER`: Your MQTT broker address
-  - `MQTT_USER`: Your MQTT username (leave empty if not required)
-  - `MQTT_PASSWORD`: Your MQTT password (leave empty if not required)
-  - `MQTT_PORT`: Your MQTT broker port (default is 1883)
-  - `WS_DEVICE_CLIENTID`: MQTT client ID for the device
-  - `publishTopic`: MQTT topic to publish water level (`watertank`)
-  - `subscribeTopicThreshold`: MQTT topic to subscribe for threshold updates (`watertank/val`)
-  - `subscribeTopicDisplay`: MQTT topic to subscribe for display control (`watertank/display`)
-  - `defaultThresholdDistance`: Default threshold distance (in cm)
-  - `defaultDisplayEnabled`: Default state of the TM1637 display (enabled/disabled)
-
----
-
-**Variables:**
-- `thresholdDistance`: Current threshold distance (in cm). Initialized from `config.h` and can be updated via MQTT.
-- `displayEnabled`: Current state of the TM1637 display. Initialized from `config.h` and can be updated via MQTT.
-- `offlineMode`: Flag to indicate if the system is running in offline mode.
-- `previousDistance`: Stores the last measured distance to avoid redundant updates.
-- `currentDelay`: Delay duration between measurements, adjusted dynamically based on water level.
-
----
-
-**Features:**
-1. **Modular Configuration:**
-   - All configuration settings are stored in `config.h` for better code organization.
-
-2. **Wi-Fi Connection:**
-   - Attempts to connect to Wi-Fi for 60 seconds. If unsuccessful, enters offline mode.
-
-3. **MQTT Integration:**
-   - Publishes water level to `watertank`.
-   - Subscribes to `watertank/val` to dynamically update the threshold distance.
-   - Subscribes to `watertank/display` to toggle the TM1637 display on/off.
-
-4. **Offline Mode:**
-   - If Wi-Fi is unavailable, the system continues to function locally.
-
-5. **Buzzer Alert:**
-   - Beeps when the water level is below the threshold.
-
-6. **TM1637 Display:**
-   - Displays the measured distance in cm (if enabled via MQTT).
-   - Shows patterns during Wi-Fi and MQTT connection attempts.
-
-7. **Power Bank Activity:**
-   - Toggles the built-in LED periodically to keep the power bank active.
-
----
-
-**Usage:**
-1. Connect the hardware as described above.
-2. Update the Wi-Fi and MQTT credentials in the `config.h` file.
-3. Upload the code to the ESP8266 NodeMCU using the Arduino IDE.
-4. Monitor the Serial Monitor for debug messages.
-5. Use an MQTT client to publish a new threshold value to `watertank/val` or toggle the display via `watertank/display`.
-
----
-
-**Dependencies:**
-- TM1637Display Library
-- ESP8266WiFi Library
-- PubSubClient Library
-
----
-
-**Author:**
-- Paras Dhiman
-- Date: 22/03/2025
-*/
-
-
 #include <TM1637Display.h> // Include the TM1637 library
 #include <ESP8266WiFi.h>   // Include the ESP8266 Wi-Fi library
 #include <PubSubClient.h>  // Include the PubSubClient library for MQTT
@@ -138,8 +17,6 @@ const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 // Define the built-in LED pin
 const int ledPin = LED_BUILTIN; // Built-in NodeMCU LED pin (usually GPIO2 or GPIO0)
 
-// Variable to track the delay duration
-int currentDelay = 1500; // Start with 2000 ms delay
 
 // Create an instance of the TM1637Display class
 TM1637Display display(CLK, DIO);
@@ -153,8 +30,9 @@ bool offlineMode = false; // Start in online mode by default
 // Display control flag
 bool displayEnabled = defaultDisplayEnabled; // Use default value from config.h
 
-// Threshold distance
-int thresholdDistance = defaultThresholdDistance; // Use default value from config.h
+// Threshold distances
+int minDistance = 7; // Default minimum distance (water full level)
+int maxDistance = 65; // Default maximum distance (water low level)
 
 // Create Wi-Fi and MQTT clients
 WiFiClient espClient;
@@ -168,6 +46,7 @@ void blinkLED(int frequency);
 void mqttCallback(char* topic, byte* payload, unsigned int length);
 void showConnectingPattern();
 void keepPowerBankActive();
+void calculateAndPublishPercentage();
 
 // Declare the static variable globally so it persists across loop iterations
 static unsigned long lastActivityTime = 0;
@@ -229,35 +108,48 @@ void loop() {
     // Update the previous distance
     previousDistance = distance;
 
-    // Print the distance to the Serial Monitor
+    // Calculate the water level percentage
+    int tankHeight = maxDistance - minDistance; // Calculate the tank height
+    int waterLevel = tankHeight - (distance - minDistance); // Calculate water level
+    int percentage = (waterLevel * 100) / tankHeight; // Calculate percentage
+
+    // Ensure percentage is within 0-100 range
+    if (percentage < 0) percentage = 0;
+    if (percentage > 100) percentage = 100;
+
+    // Print the distance and percentage to the Serial Monitor in a single line
     Serial.print("Distance: ");
     Serial.print(distance);
-    Serial.println(" cm");
+    Serial.print(" cm, Water Level: ");
+    Serial.print(percentage);
+    Serial.println("%");
 
-    // Display the distance on the TM1637 4-segment display (if enabled)
+    // Publish the percentage to the MQTT topic
+    if (!offlineMode) {
+      char message[10];
+      snprintf(message, sizeof(message), "%d", percentage);
+      // Serial.print("Publishing percentage: ");
+      // Serial.println(message);
+      client.publish(publishTopic, message, true); // Retain the message with QoS 1
+    }
+
+    // Display the percentage on the TM1637 4-segment display (if enabled)
     if (displayEnabled) {
-      if (distance < 0 || distance > 6969) {
-        // If the distance is out of range, display "----"
-        display.showNumberDec(6969, false);
+      if (percentage < 0 || percentage > 9999) {
+        // If the percentage is out of range, display "----"
+        display.showNumberDec(9999, false);
       } else {
-        // Display the distance normally
-        display.showNumberDec(distance, false);
+        // Display the percentage normally
+        display.showNumberDec(percentage, false);
       }
     } else {
       // Turn off the display
       display.clear();
     }
-
-    // If not in offline mode, publish the water level to the MQTT topic
-    if (!offlineMode) {
-      char message[10];
-      snprintf(message, sizeof(message), "%d", distance);
-      client.publish(publishTopic, message, true); // Retain the message with QoS 1
-    }
   }
 
-  // Check if the distance is below the threshold
-  if (distance <= thresholdDistance) {
+  // Check if the distance is out of range
+  if (distance < minDistance || distance > maxDistance) {
     // Make the buzzer beep
     for (int i = 0; i < 3; i++) { // Beep 3 times
       digitalWrite(buzzerPin, LOW); // Turn on the buzzer
@@ -266,12 +158,12 @@ void loop() {
       delay(150);                   // Buzzer off for 150ms
     }
     // Reduce the delay to 500 ms while the buzzer is active
-    currentDelay = 250;
+    currentDelay = 500;
   } else {
     // Ensure the buzzer is off
     digitalWrite(buzzerPin, HIGH);
-    // Restore the delay to 2000 ms when the distance is above the threshold
-    currentDelay = 1500;
+    // Restore the delay to 2000 ms when the distance is within range
+    currentDelay = 2000;
   }
 
   // Wait for the current delay duration before the next measurement
@@ -289,6 +181,29 @@ long measureDistance() {
 
   // Read the Echo pin and calculate the duration
   return pulseIn(echoPin, HIGH);
+}
+
+// Function to calculate and publish water level percentage
+void calculateAndPublishPercentage() {
+  int tankHeight = maxDistance - minDistance; // Calculate the tank height
+  int waterLevel = tankHeight - (previousDistance - minDistance); // Calculate water level
+  int percentage = (waterLevel * 100) / tankHeight; // Calculate percentage
+
+  // Ensure percentage is within 0-100 range
+  if (percentage < 0) percentage = 0;
+  if (percentage > 100) percentage = 100;
+
+  // Publish the percentage to the MQTT topic
+  if (!offlineMode) {
+    char message[10];
+    snprintf(message, sizeof(message), "%d", percentage);
+    client.publish(publishTopic, message, true); // Retain the message with QoS 1
+  }
+
+  // Print the percentage to the Serial Monitor
+  Serial.print("Water Level Percentage: ");
+  Serial.print(percentage);
+  Serial.println("%");
 }
 
 // Function to connect to Wi-Fi
@@ -323,18 +238,16 @@ void connectToWiFi() {
 void connectToMQTT() {
   while (!client.connected()) {
     Serial.print("Connecting to MQTT...");
-    // Blink LED every 200ms while connecting to MQTT
-    blinkLED(200);
+    blinkLED(200); // Blink LED every 200ms while connecting to MQTT
     showConnectingPattern(); // Show connecting pattern on the display
 
     // Set Last Will and Testament (LWT) during the connect call
-    if (client.connect(WS_DEVICE_CLIENTID, MQTT_USER, MQTT_PASSWORD, publishTopic, 1, true, "0")) {
+    if (client.connect(WS_DEVICE_CLIENTID, MQTT_USER, MQTT_PASSWORD, publishTopic, 1, true, "offline")) {
       Serial.println("connected!");
-      client.subscribe(subscribeTopicThreshold); // Subscribe to the topic to receive threshold updates
-      client.subscribe(subscribeTopicDisplay);   // Subscribe to the topic to control the display
+      client.subscribe(subscribeTopicMinDist); // Subscribe to minimum distance updates
+      client.subscribe(subscribeTopicMaxDist); // Subscribe to maximum distance updates
+      client.subscribe(subscribeTopicDisplay); // Subscribe to display control
       Serial.print("Subscribed to topics: ");
-      Serial.println(subscribeTopicThreshold);
-      Serial.println(subscribeTopicDisplay);
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -375,22 +288,35 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   int displayValue = atoi(message); // Convert the message to an integer
   if (displayValue >= 0 && displayValue <= 9999) {
     display.showNumberDec(displayValue, false); // Show the value on the display
-    delay(1000); // Keep the value displayed for 2 seconds
+    delay(500); // Keep the value displayed for 0.5 seconds
   } else {
     // If the value is invalid, show "----" temporarily
     display.showNumberDecEx(0, 0b01000000, false); // Show "----"
-    delay(1000);
+    delay(500);
   }
 
-  // Handle threshold updates
-  if (String(topic) == subscribeTopicThreshold) {
-    int newThreshold = atoi(message); // Convert the message to an integer
-    if (newThreshold > 0) { // Ensure the new threshold is valid
-      thresholdDistance = newThreshold;
-      Serial.print("Updated thresholdDistance to: ");
-      Serial.println(thresholdDistance);
+
+  // Handle minimum distance updates
+  if (String(topic) == subscribeTopicMinDist) {
+    int newMinDistance = atoi(message); // Convert the message to an integer
+    if (newMinDistance > 0) { // Ensure the new minimum distance is valid
+      minDistance = newMinDistance;
+      Serial.print("Updated minDistance to: ");
+      Serial.println(minDistance);
     } else {
-      Serial.println("Invalid threshold value received.");
+      Serial.println("Invalid minimum distance value received.");
+    }
+  }
+
+  // Handle maximum distance updates
+  if (String(topic) == subscribeTopicMaxDist) {
+    int newMaxDistance = atoi(message); // Convert the message to an integer
+    if (newMaxDistance > minDistance) { // Ensure the new maximum distance is valid
+      maxDistance = newMaxDistance;
+      Serial.print("Updated maxDistance to: ");
+      Serial.println(maxDistance);
+    } else {
+      Serial.println("Invalid maximum distance value received.");
     }
   }
 
@@ -413,7 +339,6 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
 void keepPowerBankActive() {
   // Toggle a GPIO pin to simulate activity
   digitalWrite(ledPin, LOW); // Turn on the built-in LED
-  delay(100);  
-  // Serial.println("Trigger led");
+  delay(100);
   digitalWrite(ledPin, HIGH); // Turn off the LED
 }
