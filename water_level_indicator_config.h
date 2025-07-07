@@ -6,9 +6,9 @@ const char* ssid = "MST Protocol";
 const char* password = "Blackkaiser69";
 
 // MQTT server configuration
-#define MQTT_SERVER "mqtt.mstservices.tech"
-#define MQTT_USER "mst"
-#define MQTT_PASSWORD "1212"
+#define MQTT_SERVER ""
+#define MQTT_USER ""
+#define MQTT_PASSWORD ""
 #define MQTT_PORT 1883
 #define WS_DEVICE_CLIENTID "9POWuKe/nodemcuwatertank"
 
