@@ -29,6 +29,10 @@ bool offlineMode = false; // Start in online mode by default
 
 // Display control flag
 bool displayEnabled = defaultDisplayEnabled; // Use default value from config.h
+// Buzzer Control flag
+bool buzzerSound = defaultBuzzerSound; // Use default value from config.h
+int del_ay = 0; // declare the delay value
+
 
 // Threshold distances
 int minDistance = 7; // Default minimum distance (water full level)
@@ -150,24 +154,24 @@ void loop() {
 
   // Check if the distance is out of range
   if (distance < minDistance || distance > maxDistance) {
-    // Make the buzzer beep
-    for (int i = 0; i < 3; i++) { // Beep 3 times
-      digitalWrite(buzzerPin, LOW); // Turn on the buzzer
-      delay(150);                   // Buzzer on for 150ms
-      digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
-      delay(150);                   // Buzzer off for 150ms
+    if (buzzerSound) { // Only buzz if enabled
+      for (int i = 0; i < 3; i++) { // Beep 3 times
+        digitalWrite(buzzerPin, LOW); // Turn on the buzzer
+        delay(150);                   // Buzzer on for 150ms
+        digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
+        delay(150);                   // Buzzer off for 150ms
+      }
+      // Reduce the delay to 500 ms while the buzzer is active
+      del_ay = 800;
     }
-    // Reduce the delay to 500 ms while the buzzer is active
-    currentDelay = 500;
   } else {
     // Ensure the buzzer is off
     digitalWrite(buzzerPin, HIGH);
-    // Restore the delay to 2000 ms when the distance is within range
-    currentDelay = 2000;
+    // Restore the delay when the distance is within range
+    del_ay = currentDelay;
   }
-
   // Wait for the current delay duration before the next measurement
-  delay(currentDelay);
+  delay(del_ay);
 }
 
 // Function to measure distance using the ultrasonic sensor
@@ -247,6 +251,7 @@ void connectToMQTT() {
       client.subscribe(subscribeTopicMinDist); // Subscribe to minimum distance updates
       client.subscribe(subscribeTopicMaxDist); // Subscribe to maximum distance updates
       client.subscribe(subscribeTopicDisplay); // Subscribe to display control
+      client.subscribe(subscribeTopicBuzzer); // Subscribe to buzzer control
       Serial.print("Subscribed to topics: ");
     } else {
       Serial.print("failed, rc=");
@@ -305,6 +310,20 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
       Serial.println(minDistance);
     } else {
       Serial.println("Invalid minimum distance value received.");
+    }
+  }
+
+  // Handle buzzer control
+  if (String(topic) == subscribeTopicBuzzer) {
+    int newBuzzerState = atoi(message); // Convert the message to an integer
+    if (newBuzzerState == 1) {
+      buzzerSound = true;
+      Serial.println("Buzzer enabled.");
+    } else if (newBuzzerState == 0) {
+      buzzerSound = false;
+      Serial.println("Buzzer disabled.");
+    } else {
+      Serial.println("Invalid buzzer state received.");
     }
   }
 
