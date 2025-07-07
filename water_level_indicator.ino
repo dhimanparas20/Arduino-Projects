@@ -107,6 +107,26 @@ void loop() {
   long duration = measureDistance();
   int distance = duration * 0.034 / 2; // Convert duration to distance in cm
 
+  // Check if the distance is out of range
+  if (distance < minDistance || distance > maxDistance) {
+    if (buzzerSound) { // Only buzz if enabled
+      for (int i = 0; i < 3; i++) { // Beep 3 times
+        digitalWrite(buzzerPin, LOW); // Turn on the buzzer
+        delay(150);                   // Buzzer on for 150ms
+        digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
+        delay(150);                   // Buzzer off for 150ms
+      }
+      // Reduce the delay to 500 ms while the buzzer is active
+      del_ay = 800;
+    }
+  } 
+  else {
+    // Ensure the buzzer is off
+    digitalWrite(buzzerPin, HIGH);
+    // Restore the delay when the distance is within range
+    del_ay = currentDelay;
+  }
+
   // Only proceed if the distance has changed
   if (distance != previousDistance) {
     // Update the previous distance
@@ -150,25 +170,6 @@ void loop() {
       // Turn off the display
       display.clear();
     }
-  }
-
-  // Check if the distance is out of range
-  if (distance < minDistance || distance > maxDistance) {
-    if (buzzerSound) { // Only buzz if enabled
-      for (int i = 0; i < 3; i++) { // Beep 3 times
-        digitalWrite(buzzerPin, LOW); // Turn on the buzzer
-        delay(150);                   // Buzzer on for 150ms
-        digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
-        delay(150);                   // Buzzer off for 150ms
-      }
-      // Reduce the delay to 500 ms while the buzzer is active
-      del_ay = 800;
-    }
-  } else {
-    // Ensure the buzzer is off
-    digitalWrite(buzzerPin, HIGH);
-    // Restore the delay when the distance is within range
-    del_ay = currentDelay;
   }
   // Wait for the current delay duration before the next measurement
   delay(del_ay);
