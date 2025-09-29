@@ -17,7 +17,6 @@ const int buzzerPin = D3;   // Buzzer pin (GPIO0)
 // Define the built-in LED pin
 const int ledPin = LED_BUILTIN; // Built-in NodeMCU LED pin (usually GPIO2 or GPIO0)
 
-
 // Create an instance of the TM1637Display class
 TM1637Display display(CLK, DIO);
 
@@ -33,6 +32,8 @@ bool displayEnabled = defaultDisplayEnabled; // Use default value from config.h
 bool buzzerSound = defaultBuzzerSound; // Use default value from config.h
 int del_ay = 0; // declare the delay value
 
+// Motor control variable
+bool motorState = defaultMotorState;     // Current motor state
 
 // Threshold distances
 int minDistance = 7; // Default minimum distance (water full level)
@@ -51,9 +52,13 @@ void mqttCallback(char* topic, byte* payload, unsigned int length);
 void showConnectingPattern();
 void keepPowerBankActive();
 void calculateAndPublishPercentage();
+void controlMotor(bool state);
 
 // Declare the static variable globally so it persists across loop iterations
 static unsigned long lastActivityTime = 0;
+
+// For non-blocking loop timing
+unsigned long lastMeasurementTime = 0;
 
 void setup() {
   // Initialize serial communication
@@ -70,6 +75,10 @@ void setup() {
   // Set pin mode for the built-in LED
   pinMode(ledPin, OUTPUT);
   digitalWrite(ledPin, HIGH); // Turn off the LED initially
+
+  // Set pin mode for the motor relay
+  pinMode(motorRelayPin, OUTPUT);
+  digitalWrite(motorRelayPin, LOW); // Turn off the motor initially (assuming LOW = OFF)
 
   // Initialize the TM1637 display
   display.setBrightness(1); // Set brightness (0-7, 7 is max)
@@ -89,12 +98,6 @@ void setup() {
 }
 
 void loop() {
-  // Check if 10 seconds have passed since the last activity
-  // if (millis() - lastActivityTime > 10000) { // 10 seconds interval
-  //   keepPowerBankActive(); // Call the function to keep the power bank active
-  //   lastActivityTime = millis(); // Update the last activity time
-  // }
-
   // If not in offline mode, ensure the MQTT client stays connected
   if (!offlineMode && !client.connected()) {
     connectToMQTT();
@@ -103,34 +106,13 @@ void loop() {
     client.loop();
   }
 
-  // Measure the distance
-  long duration = measureDistance();
-  int distance = duration * 0.034 / 2; // Convert duration to distance in cm
+  unsigned long now = millis();
+  if (now - lastMeasurementTime >= del_ay) {
+    lastMeasurementTime = now;
 
-  // Check if the distance is out of range
-  if (distance < minDistance || distance > maxDistance) {
-    if (buzzerSound) { // Only buzz if enabled
-      for (int i = 0; i < 3; i++) { // Beep 3 times
-        digitalWrite(buzzerPin, LOW); // Turn on the buzzer
-        delay(150);                   // Buzzer on for 150ms
-        digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
-        delay(150);                   // Buzzer off for 150ms
-      }
-      // Reduce the delay to 500 ms while the buzzer is active
-      del_ay = 800;
-    }
-  } 
-  else {
-    // Ensure the buzzer is off
-    digitalWrite(buzzerPin, HIGH);
-    // Restore the delay when the distance is within range
-    del_ay = currentDelay;
-  }
-
-  // Only proceed if the distance has changed
-  if (distance != previousDistance) {
-    // Update the previous distance
-    previousDistance = distance;
+    // Measure the distance
+    long duration = measureDistance();
+    int distance = duration * 0.034 / 2; // Convert duration to distance in cm
 
     // Calculate the water level percentage
     int tankHeight = maxDistance - minDistance; // Calculate the tank height
@@ -141,38 +123,70 @@ void loop() {
     if (percentage < 0) percentage = 0;
     if (percentage > 100) percentage = 100;
 
-    // Print the distance and percentage to the Serial Monitor in a single line
-    Serial.print("Distance: ");
-    Serial.print(distance);
-    Serial.print(" cm, Water Level: ");
-    Serial.print(percentage);
-    Serial.println("%");
-
-    // Publish the percentage to the MQTT topic
-    if (!offlineMode) {
-      char message[10];
-      snprintf(message, sizeof(message), "%d", percentage);
-      // Serial.print("Publishing percentage: ");
-      // Serial.println(message);
-      client.publish(publishTopic, message, true); // Retain the message with QoS 1
+    // Check if the distance is out of range (for buzzer)
+    if (distance < minDistance || distance > maxDistance) {
+      if (buzzerSound) { // Only buzz if enabled
+        for (int i = 0; i < 3; i++) { // Beep 3 times
+          digitalWrite(buzzerPin, LOW); // Turn on the buzzer
+          delay(150);                   // Buzzer on for 150ms
+          digitalWrite(buzzerPin, HIGH); // Turn off the buzzer
+          delay(150);                   // Buzzer off for 150ms
+        }
+        // Reduce the delay to 800 ms while the buzzer is active
+        del_ay = 800;
+      }
+    } 
+    else {
+      // Ensure the buzzer is off
+      digitalWrite(buzzerPin, HIGH);
+      // Restore the delay when the distance is within range
+      del_ay = currentDelay;
     }
 
-    // Display the percentage on the TM1637 4-segment display (if enabled)
-    if (displayEnabled) {
-      if (percentage < 0 || percentage > 9999) {
-        // If the percentage is out of range, display "----"
-        display.showNumberDec(9999, false);
-      } else {
-        // Display the percentage normally
-        display.showNumberDec(percentage, false);
+    // Only proceed if the distance has changed
+    if (distance != previousDistance) {
+      // Update the previous distance
+      previousDistance = distance;
+
+      // Print the distance and percentage to the Serial Monitor in a single line
+      Serial.print("Distance: ");
+      Serial.print(distance);
+      Serial.print(" cm, Water Level: ");
+      Serial.print(percentage);
+      Serial.print("%, Motor: ");
+      Serial.println(motorState ? "ON" : "OFF");
+
+      // Publish the percentage to the MQTT topic
+      if (!offlineMode) {
+        char message[10];
+        snprintf(message, sizeof(message), "%d", percentage);
+        client.publish(publishTopic, message, true); // Retain the message with QoS 1
       }
-    } else {
-      // Turn off the display
-      display.clear();
+
+      // Display the percentage on the TM1637 4-segment display (if enabled)
+      if (displayEnabled) {
+        if (percentage < 0 || percentage > 9999) {
+          // If the percentage is out of range, display "----"
+          display.showNumberDec(9999, false);
+        } else {
+          // Display the percentage normally
+          display.showNumberDec(percentage, false);
+        }
+      } else {
+        // Turn off the display
+        display.clear();
+      }
     }
   }
-  // Wait for the current delay duration before the next measurement
-  delay(del_ay);
+  // No delay here! Loop runs fast for MQTT responsiveness.
+}
+
+// Function to control motor
+void controlMotor(bool state) {
+  motorState = state;
+  digitalWrite(motorRelayPin, state ? HIGH : LOW); // Assuming HIGH = ON, LOW = OFF
+  Serial.print("Motor turned ");
+  Serial.println(state ? "ON" : "OFF");
 }
 
 // Function to measure distance using the ultrasonic sensor
@@ -216,7 +230,6 @@ void connectToWiFi() {
   Serial.print("Connecting to Wi-Fi...");
   WiFi.begin(ssid, password);
   WiFi.setSleepMode(WIFI_LIGHT_SLEEP);
-  // WiFi.setSleepMode(WIFI_NONE_SLEEP);
 
   unsigned long startTime = millis(); // Record the start time
   while (WiFi.status() != WL_CONNECTED) {
@@ -252,8 +265,9 @@ void connectToMQTT() {
       client.subscribe(subscribeTopicMinDist); // Subscribe to minimum distance updates
       client.subscribe(subscribeTopicMaxDist); // Subscribe to maximum distance updates
       client.subscribe(subscribeTopicDisplay); // Subscribe to display control
-      client.subscribe(subscribeTopicBuzzer); // Subscribe to buzzer control
-      Serial.print("Subscribed to topics: ");
+      client.subscribe(subscribeTopicBuzzer);  // Subscribe to buzzer control
+      client.subscribe(subscribeTopicMotor);   // Subscribe to motor control
+      Serial.println("Subscribed to all topics including motor control");
     } else {
       Serial.print("failed, rc=");
       Serial.print(client.state());
@@ -290,17 +304,38 @@ void mqttCallback(char* topic, byte* payload, unsigned int length) {
   memcpy(message, payload, length);
   message[length] = '\0'; // Null-terminate the string
 
-  // Display the received message temporarily on the TM1637 display
-  int displayValue = atoi(message); // Convert the message to an integer
-  if (displayValue >= 0 && displayValue <= 9999) {
-    display.showNumberDec(displayValue, false); // Show the value on the display
-    delay(500); // Keep the value displayed for 0.5 seconds
-  } else {
-    // If the value is invalid, show "----" temporarily
-    display.showNumberDecEx(0, 0b01000000, false); // Show "----"
-    delay(500);
+  // Handle motor control
+  if (String(topic) == subscribeTopicMotor) {
+    int newMotorState = atoi(message); // Convert the message to an integer
+    if (newMotorState == 1) {
+      controlMotor(true);
+      Serial.println("Motor turned ON via MQTT");
+    } else if (newMotorState == 0) {
+      controlMotor(false);
+      Serial.println("Motor turned OFF via MQTT");
+    } else {
+      Serial.println("Invalid motor state received.");
+    }
+    return; // Do not display anything on the 4-segment display for motor topic
   }
 
+  // Only display on TM1637 for specific topics (not motor)
+  if (
+    String(topic) == subscribeTopicMinDist ||
+    String(topic) == subscribeTopicMaxDist ||
+    String(topic) == subscribeTopicDisplay ||
+    String(topic) == subscribeTopicBuzzer
+  ) {
+    int displayValue = atoi(message); // Convert the message to an integer
+    if (displayValue >= 0 && displayValue <= 9999) {
+      display.showNumberDec(displayValue, false); // Show the value on the display
+      delay(500); // Keep the value displayed for 0.5 seconds
+    } else {
+      // If the value is invalid, show "----" temporarily
+      display.showNumberDecEx(0, 0b01000000, false); // Show "----"
+      delay(500);
+    }
+  }
 
   // Handle minimum distance updates
   if (String(topic) == subscribeTopicMinDist) {
